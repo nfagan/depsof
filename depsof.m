@@ -21,17 +21,20 @@ function deps = depsof(varargin)
 %     deps = DEPSOF( function_names ); where `function_names` is a cell
 %     array of strings, searches each function.
 %
-%     deps = DEPSOF( ..., 'Recursive', tf ); for the logical scalar flag
-%     `tf` indicates whether to recursively search for external
-%     dependencies of each resolved function. Default is false.
+%     deps = DEPSOF( ..., 'Recursive', tf ); indicates whether to 
+%     recursively search for external dependencies of each resolved 
+%     function. Default is false.
 %
-%     deps = DEPSOF( ..., 'Verbose', tf ); for the logical scalar flag `tf`
-%     indicates whether to print information about the dependency-tracking
-%     process. Default is false.
+%     deps = DEPSOF( ..., 'SkipToolboxes', tf ); indicates whether to avoid 
+%     traversing m-files that exist in Matlab's toolbox directory. Default 
+%     is true.
 %
-%     deps = DEPSOF( ..., 'SkipToolboxes', tf ); for the logical scalar
-%     flag `tf` indicates whether to avoid traversing m-files that exist in
-%     Matlab's toolbox directory. Default is true.
+%     deps = DEPSOF( ..., 'Verbose', tf ); indicates whether to print 
+%     information about the dependency-tracking process. Default is false.
+%
+%     deps = DEPSOF( ..., 'Display', tf ); indicates whether to
+%     pretty-print the resolved and unresolved dependencies of each visited
+%     function. Default is false.
 %
 %     Notes & limitations //
 %

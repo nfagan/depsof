@@ -24,6 +24,7 @@ classdef Dependencies < handle
     ErrorHandler;
     FileContents;
     SkipToolboxFunctions;
+    Warn;
   end
   
   methods (Access = private)
@@ -52,6 +53,7 @@ classdef Dependencies < handle
       obj.ErrorHandler = 'warn';
       obj.FileContents = [];
       obj.SkipToolboxFunctions = true;
+      obj.Warn = true;
     end
     
     function tf = is_mex_file(obj, file_path)
@@ -123,7 +125,9 @@ classdef Dependencies < handle
       
       if ( isempty(file_path) )
         if ( first_entry )
-          warning( 'Function "%s" not found.', mfile );
+          if ( obj.Warn )
+            warning( 'Function "%s" not found.', mfile );
+          end
         else          
           obj.UnresolvedDependentFunctions{end+1} = mfile;
           obj.UnresolvedIn{end+1} = parent_func;
@@ -153,8 +157,10 @@ classdef Dependencies < handle
       try
         tokens = scan( file_contents );
       catch err
-        fprintf( '\n' );
-        warning( 'Failed to tokenize file "%s": %s', mfile, err.message );
+        if ( obj.Warn )
+          fprintf( '\n' );
+          warning( 'Failed to tokenize file "%s": %s', mfile, err.message );
+        end
         tokens = [];
       end
       
@@ -163,8 +169,10 @@ classdef Dependencies < handle
         
         function_names = obj.parse();
       catch err        
-        fprintf( '\n' );
-        warning( 'Failed to parse "%s": %s', mfile, err.message );
+        if ( obj.Warn )
+          fprintf( '\n' );
+          warning( 'Failed to parse "%s": %s', mfile, err.message );
+        end
         function_names = {};
       end
       
@@ -552,11 +560,12 @@ classdef Dependencies < handle
       
       function_names = containers.Map();
       
-      if ( n_funcs == 0 )
-        loop_sequence = 0;
-      else
-        loop_sequence = 1:n_funcs;
-      end
+%       if ( n_funcs == 0 )
+%         loop_sequence = 0;
+%       else
+%         loop_sequence = 1:n_funcs;
+%       end
+      loop_sequence = 0:n_funcs;
       
       for i = loop_sequence
         obj.insert_names_for_function( ids, function_names, i, ...
@@ -1381,6 +1390,42 @@ classdef Dependencies < handle
         mfiles = cellfun( @char, mfiles, 'un', 0 );
       end
     end
+    
+    function display_funcs(visited, in_files, funcs, kind)
+      is_target = strcmp( in_files, visited );
+      target_funcs = funcs(is_target);
+
+      for i = 1:numel(target_funcs)
+        if ( ~isempty(kind) )
+          fprintf( '\n    %s (%s)', target_funcs{i}, kind );
+        else
+          fprintf( '\n    <a href="%s">%s</a>', target_funcs{i}, target_funcs{i} );
+        end
+      end
+    end
+    
+    function display_results(deps)
+      resolved_in = unique( deps.ResolvedIn );
+      unresolved_in = unique( deps.UnresolvedIn );
+      
+      visited = union( resolved_in, unresolved_in );
+      
+      if ( isempty(visited) )
+        fprintf( '\n  No functions were visited.' );
+        
+      else
+        for i = 1:numel(visited)
+          fprintf( '\n  <a href="%s" style="font-weight:bold">%s</a>', visited{i}, visited{i} );
+
+          Dependencies.display_funcs( visited{i}, deps.ResolvedIn, deps.Resolved, '' );
+          Dependencies.display_funcs( visited{i}, deps.UnresolvedIn, deps.Unresolved, 'Unresolved' );
+
+          fprintf( '\n' );
+        end
+      end
+      
+      fprintf( '\n' );
+    end
   end
   
   methods (Access = public, Static = true)
@@ -1393,6 +1438,8 @@ classdef Dependencies < handle
       p.addParameter( 'Recursive', false, @(x) logical_validator(x, 'Recursive') );
       p.addParameter( 'Verbose', false, @(x) logical_validator(x, 'Verbose') );
       p.addParameter( 'SkipToolboxes', true, @(x) logical_validator(x, 'SkipToolboxes') );
+      p.addParameter( 'Display', false, @(x) logical_validator(x, 'Display') );
+      p.addParameter( 'Warn', true, @(x) logical_validator(x, 'Warn') );
       
       p.parse( varargin{:} );
       
@@ -1400,6 +1447,7 @@ classdef Dependencies < handle
       obj.Verbose = p.Results.Verbose;
       obj.Recursive = p.Results.Recursive;
       obj.SkipToolboxFunctions = p.Results.SkipToolboxes;
+      obj.Warn = p.Results.Warn;
       
       mfile = Dependencies.ensure_cellstr_func_names( mfile );
       obj.parse_files( mfile );
@@ -1412,6 +1460,10 @@ classdef Dependencies < handle
       deps.Unresolved = sorted_urs;
       deps.ResolvedIn = obj.ResolvedIn(sorted_rs_idx);
       deps.UnresolvedIn = obj.UnresolvedIn(sorted_urs_idx);
+      
+      if ( p.Results.Display )
+        Dependencies.display_results( deps );
+      end
     end
   end
 end
