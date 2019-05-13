@@ -1391,7 +1391,7 @@ classdef Dependencies < handle
       end
     end
     
-    function display_funcs(visited, in_files, funcs, kind)
+    function display_funcs(visited, in_files, funcs, kind, has_desktop)
       is_target = strcmp( in_files, visited );
       target_funcs = funcs(is_target);
 
@@ -1399,7 +1399,11 @@ classdef Dependencies < handle
         if ( ~isempty(kind) )
           fprintf( '\n    %s (%s)', target_funcs{i}, kind );
         else
-          fprintf( '\n    <a href="%s">%s</a>', target_funcs{i}, target_funcs{i} );
+          if ( has_desktop )
+            fprintf( '\n    <a href="%s">%s</a>', target_funcs{i}, target_funcs{i} );
+          else
+            fprintf( '\n    %s', target_funcs{i} );
+          end
         end
       end
     end
@@ -1409,16 +1413,23 @@ classdef Dependencies < handle
       unresolved_in = unique( deps.UnresolvedIn );
       
       visited = union( resolved_in, unresolved_in );
+      has_desktop = usejava( 'desktop' );
       
       if ( isempty(visited) )
         fprintf( '\n  No functions were visited.' );
         
       else
         for i = 1:numel(visited)
-          fprintf( '\n  <a href="%s" style="font-weight:bold">%s</a>', visited{i}, visited{i} );
+          if ( has_desktop )
+            fprintf( '\n  <a href="%s" style="font-weight:bold">%s</a>', visited{i}, visited{i} );
+          else
+            fprintf( '\n  %s', visited{i} );
+          end
 
-          Dependencies.display_funcs( visited{i}, deps.ResolvedIn, deps.Resolved, '' );
-          Dependencies.display_funcs( visited{i}, deps.UnresolvedIn, deps.Unresolved, 'Unresolved' );
+          Dependencies.display_funcs( visited{i} ...
+            , deps.ResolvedIn, deps.Resolved, '', has_desktop );
+          Dependencies.display_funcs( visited{i} ...
+            , deps.UnresolvedIn, deps.Unresolved, 'Unresolved', has_desktop );
 
           fprintf( '\n' );
         end
