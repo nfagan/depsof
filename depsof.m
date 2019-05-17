@@ -49,7 +49,7 @@ function deps = depsof(varargin)
 %     result if the file contains non-ascii characters, or invalid Matlab
 %     syntax or symbols.
 %
-%     DEPSOF cannot parse classdef files.
+%     DEPSOF has incomplete support for classdef files.
 %
 %     See also mfilename, which
 

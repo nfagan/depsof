@@ -7,8 +7,10 @@ classdef Dependencies < handle
     TokenTypes;
     ScopeDepth;
     EnclosingFunction;
+    EnclosingClass;
     IdentifierIndex;
     FunctionDefinitions;
+    ClassDefinitions;
     InternedStringMap;
     InternedStrings;
     Imports;
@@ -25,6 +27,7 @@ classdef Dependencies < handle
     FileContents;
     SkipToolboxFunctions;
     Warn;
+    DisallowClassdef;
   end
   
   methods (Access = private)
@@ -34,10 +37,12 @@ classdef Dependencies < handle
       obj.TokenTypes = token_types();
       obj.ScopeDepth = 0;
       obj.EnclosingFunction = 0;
+      obj.EnclosingClass = 0;
       obj.IdentifierIndex = 0;
       obj.Tokens = [];
       obj.NumTokens = 0;
       obj.FunctionDefinitions = {};
+      obj.ClassDefinitions = {};
       obj.InternedStringMap = containers.Map();
       obj.InternedStrings = {};
       obj.Imports = obj.make_imports_container();
@@ -54,6 +59,7 @@ classdef Dependencies < handle
       obj.FileContents = [];
       obj.SkipToolboxFunctions = true;
       obj.Warn = true;
+      obj.DisallowClassdef = false;
     end
     
     function tf = is_mex_file(obj, file_path)
@@ -92,19 +98,21 @@ classdef Dependencies < handle
     
     function begin_file(obj, tokens, contents)
       
-      if ( ~isempty(tokens) && any(tokens(:, 1) == obj.TokenTypes.classdef) )
+      if ( obj.DisallowClassdef && ~isempty(tokens) && any(tokens(:, 1) == obj.TokenTypes.classdef) )
         error( 'Cannot track dependencies of class definition.' );
       end
       
       obj.Tokens = tokens;
       obj.NumTokens = size( tokens, 1 );
       obj.EnclosingFunction = 0;
+      obj.EnclosingClass = 0;
       obj.ScopeDepth = 0;
       obj.IdentifierIndex = 0;
       obj.FunctionDefinitions = {};
-      obj.ImplicitFunctionEnd = obj.is_implicitly_terminated_function( tokens );
+      obj.ClassDefinitions = {};
       obj.FileContents = contents;
       obj.Imports = obj.make_imports_container();
+      obj.analyze_tokens( tokens );
     end
     
     function parse_files(obj, mfiles)
@@ -205,7 +213,6 @@ classdef Dependencies < handle
           [ids, i] = obj.function_definition( i, ids );
           
         elseif ( current_type == obj.TokenTypes.classdef )
-          error( 'Cannot track dependencies of class definition.' );
           [ids, i] = obj.class_definition( i, ids );
 
         elseif ( current_type == obj.TokenTypes.new_line )
@@ -226,10 +233,16 @@ classdef Dependencies < handle
       end
     end
     
+    function seq = internable_function_definition_components(obj)
+      seq = 1:3;
+    end
+    
     function intern_function_strings(obj)
       for i = 1:numel(obj.FunctionDefinitions)
-        % Last element is enclosing function index, not a string.
-        for j = 1:numel(obj.FunctionDefinitions{i})-1
+        % Get elements representing internable strings.
+        loop_sequence = obj.internable_function_definition_components();
+        
+        for j = loop_sequence
           obj.FunctionDefinitions{i}{j} = ...
             obj.intern_strings( obj.FileContents, obj.FunctionDefinitions{i}{j} );
         end
@@ -245,16 +258,36 @@ classdef Dependencies < handle
       end
     end
     
+    function intern_classdef_strings(obj)
+      for i = 1:numel(obj.ClassDefinitions)
+        def = obj.ClassDefinitions{i};
+        
+        def.Name = obj.intern_strings( obj.FileContents, def.Name );
+        def.Properties = obj.intern_strings( obj.FileContents, def.Properties );
+        
+        for j = 1:numel(def.Superclasses)
+          def.Superclasses{j} = obj.intern_strings( obj.FileContents, def.Superclasses{j} );
+        end
+        
+        obj.ClassDefinitions{i} = def;
+      end
+    end
+    
     function ids = finalize_parse(obj, ids)
       ids = horzcat( ids{:} );      
       ids = obj.intern_strings( obj.FileContents, ids );
       
       obj.intern_import_strings();
       obj.intern_function_strings();
+      obj.intern_classdef_strings();
     end
     
     function tf = is_visible_function_name(obj, funcs, var_id)
       for i = 1:numel(funcs)
+        if ( funcs(i) == 0 )
+          continue;
+        end
+        
         name = obj.FunctionDefinitions{funcs(i)}{1};
 
         if ( ~isempty(name) && name == var_id )
@@ -393,6 +426,27 @@ classdef Dependencies < handle
       end
     end
     
+    function tf = is_class_instance_reference(obj, func_idx, var_id)
+      tf = false;
+      def = obj.FunctionDefinitions{func_idx};
+      
+      outputs = def{3};
+      func_name = def{1};
+      class_name = obj.ClassDefinitions{def{5}}.Name;
+      
+      if ( func_name ~= class_name )
+        % Only valid in constructor.
+        return
+      end
+      
+      if ( ~any(outputs == var_id) )
+        % Not an output of the constructor.
+        return
+      end
+      
+      tf = true;
+    end
+    
     function insert_names_for_function(obj, ids, function_names, function_def_index ...
         , is_variable, is_identifier_start)
       
@@ -411,7 +465,7 @@ classdef Dependencies < handle
         is_import_stop = obj.is_identifier_stop( imports );
         is_import_func = obj.is_id_matching_function( imports, function_def_index );
         
-        is_complete_import = ~imports(6, :);
+        is_complete_import = ~imports(7, :);
         complete_import_stops = find( is_import_func & is_import_stop & is_complete_import );
         wildcard_import_starts = find( is_import_func & is_import_start & ~is_complete_import );
         
@@ -455,7 +509,7 @@ classdef Dependencies < handle
           scope_idx = scope;
           func_idx = current_func_index;
 
-          while ( scope_idx >= 0 )
+          while ( scope_idx >= 0 && func_idx > 0 )
             enclosing_func = obj.FunctionDefinitions{func_idx}{4};
             enclosing_inputs = obj.FunctionDefinitions{func_idx}{2};
 
@@ -519,6 +573,17 @@ classdef Dependencies < handle
           continue;
         end
         
+        %   Check to see whether this name could be a reference to the
+        %   class instance variable in a constructor, in which case it may
+        %   implicitly enter scope.
+        
+        if ( current_func_index > 0 && obj.FunctionDefinitions{current_func_index}{5} > 0 )
+          % This function was defined in a class.
+          if ( obj.is_class_instance_reference(current_func_index, var_id) )
+            continue;
+          end
+        end
+        
         %   Check to see whether this name could refer to an imported
         %   function.
         is_complete_import = false; 
@@ -560,14 +625,7 @@ classdef Dependencies < handle
       
       function_names = containers.Map();
       
-%       if ( n_funcs == 0 )
-%         loop_sequence = 0;
-%       else
-%         loop_sequence = 1:n_funcs;
-%       end
-      loop_sequence = 0:n_funcs;
-      
-      for i = loop_sequence
+      for i = 0:n_funcs
         obj.insert_names_for_function( ids, function_names, i, ...
           is_variable, is_identifier_start );
       end
@@ -1070,6 +1128,9 @@ classdef Dependencies < handle
             obj.ScopeDepth = obj.ScopeDepth - 1;
             ids(end+1:end+numel(new_ids)) = new_ids;
           end
+          
+        elseif ( current_type == obj.TokenTypes.classdef )
+          error( 'Class definitions must be top-level.' );
 
         elseif ( current_type == obj.TokenTypes.left_bracket )
           % [a, b] = func()
@@ -1102,18 +1163,37 @@ classdef Dependencies < handle
       f = obj.EnclosingFunction(end);
     end
     
+    function enter_class(obj)
+      obj.EnclosingClass(end+1) = numel( obj.ClassDefinitions ) + 1;
+      obj.ScopeDepth = obj.ScopeDepth + 1;
+    end
+    
+    function exit_class(obj)
+      obj.EnclosingClass(end) = [];
+      obj.ScopeDepth = obj.ScopeDepth - 1;
+    end
+    
+    function c = enclosing_class(obj)
+      assert( ~isempty(obj.EnclosingClass) );
+      c = obj.EnclosingClass(end);
+    end
+    
+    function def = make_function_definition(obj, name, inputs, outputs, enclosing_func, enclosing_class)
+      def = { name, inputs, outputs, enclosing_func, enclosing_class };
+    end
+    
     function [ids, i] = anonymous_function_definition(obj, begin, ids)
-      
       enclosing_func = obj.enclosing_function();
+      enclosing_class = obj.enclosing_class();
       
       obj.ScopeDepth = obj.ScopeDepth + 1;
       obj.enter_function();
       
       current_func = obj.enclosing_function();
-      
       [inputs, i] = obj.input_arguments( begin+1 );
-      def = { [], inputs, [], enclosing_func };
-      obj.FunctionDefinitions{current_func} = def;
+      
+      obj.FunctionDefinitions{current_func} = ...
+        obj.make_function_definition( [], inputs, [], enclosing_func, enclosing_class );
       
       [ids, i] = obj.expression( i-1, ids );
       
@@ -1121,22 +1201,29 @@ classdef Dependencies < handle
       obj.ScopeDepth = obj.ScopeDepth - 1;
     end
     
-    function [ids, i] = function_definition(obj, begin, ids)
+    function [ids, i] = function_definition(obj, begin, ids, has_body)
+      
+      if ( nargin < 4 )
+        has_body = true;
+      end
       
       enclosing_func = obj.enclosing_function();
+      enclosing_class = obj.enclosing_class();
+      
       obj.enter_function();
 
       i = begin + 1;
 
       inputs = [];
       outputs = [];
+      types = obj.TokenTypes;
 
-      if ( obj.peek_type(i) == obj.TokenTypes.left_bracket )
+      if ( obj.peek_type(i) == types.left_bracket )
         % Multiple outputs
         [outputs, i] = obj.output_arguments( i );
 
-      elseif ( obj.peek_type(i) == obj.TokenTypes.identifier )
-        if ( obj.peek_type(i+1) == obj.TokenTypes.equal )
+      elseif ( obj.peek_type(i) == types.identifier )
+        if ( obj.peek_type(i+1) == types.equal )
           % Single output
           outputs = i;
           i = i + 2;
@@ -1145,23 +1232,29 @@ classdef Dependencies < handle
         error( 'Unexpected token: "%s".', token_typename(obj.peek_type(i)) );
       end
 
-      i = obj.consume_tokens( obj.TokenTypes.identifier, i );
+      i = obj.consume_tokens( types.identifier, i );
       name = i - 1;
-
+      
       if ( name < 1 )
         error( 'Expected function name.' );
       end
+      
+      if ( enclosing_class ~= 0 && obj.peek_type(i) == types.period )
+        % set.mask
+        i = obj.consume_tokens( types.identifier, i+1 );
+      end      
 
-      if ( obj.peek_type(i) == obj.TokenTypes.left_parens )
+      if ( obj.peek_type(i) == types.left_parens )
         [inputs, i] = obj.input_arguments( i );
       end
       
       % Function header.
-      def = { name, inputs, outputs, enclosing_func };
-
-      obj.FunctionDefinitions{end+1} = def;
+      obj.FunctionDefinitions{end+1} = ...
+        obj.make_function_definition( name, inputs, outputs, enclosing_func, enclosing_class );
       
-      [ids, i] = obj.statement( i, ids );
+      if ( has_body )
+        [ids, i] = obj.statement( i, ids );
+      end
       
       if ( obj.peek_type(i) == obj.TokenTypes.end )
         i = i + 1;
@@ -1233,6 +1326,179 @@ classdef Dependencies < handle
       [args, i] = obj.arguments( begin, obj.TokenTypes.right_parens, true );
     end
     
+    function i = conditional_consume_parens(obj, begin)
+      i = begin + 1;
+      
+      if ( obj.peek_type(i) == obj.TokenTypes.left_parens )
+        i = obj.consume_parens( i );
+      end
+    end
+    
+    function i = consume_parens(obj, begin)
+      n_parens = 1;
+      i = begin + 1;
+      types = obj.TokenTypes;
+      
+      while ( i <= obj.NumTokens && n_parens > 0 )
+        if ( obj.peek_type(i) == types.left_parens )
+          n_parens = n_parens + 1;
+        elseif ( obj.peek_type(i) == types.right_parens )
+          n_parens = n_parens - 1;
+        end
+
+        i = i + 1;
+      end
+    end
+    
+    function i = consume_through_end(obj, begin)
+      i = begin + 1;
+      
+      while ( i <= obj.NumTokens && obj.peek_type(i) ~= obj.TokenTypes.end )
+        i = i + 1;
+      end
+      
+      i = i + 1;
+    end
+    
+    function [superclass_names, i] = super_classes(obj, i)
+      superclass_names = {};
+      types = obj.TokenTypes;
+      
+      while ( i < obj.NumTokens )
+        i = obj.consume_tokens( types.identifier, i+1 );
+        [tmp_name, i] = obj.identifier_expression( i-2, {} );
+
+        if ( numel(tmp_name) ~= 1 )
+          error( 'Expected one identifier expression in superclass name.' );
+        end
+
+        superclass_names(end+1) = tmp_name;
+
+        if ( obj.peek_type(i) ~= types.binary_operator )
+          break;
+        end
+      end
+    end
+    
+    function [ids, i] = methods_block(obj, begin, ids)
+      i = obj.conditional_consume_parens( begin );
+      types = obj.TokenTypes;
+      
+      while ( i <= obj.NumTokens )
+        t = obj.Tokens(i, 1);
+        
+        switch ( t )
+          case types.function
+            [ids, i] = obj.function_definition( i, ids );
+          case { types.identifier, types.left_bracket }
+            % Function definition without implementation.
+            [ids, i] = function_definition(obj, i-1, ids, false );
+            
+          case { types.new_line, types.semicolon, types.comma }
+            i = i + 1;
+          case types.end
+            break;
+          otherwise
+            error( 'Unexpected token "%s" in methods block.', token_typename(t) );
+        end
+      end
+      
+      i = obj.consume_tokens( types.end, i );
+    end
+    
+    function [props, ids, i] = properties_block(obj, begin, ids)
+      i = obj.conditional_consume_parens( begin );
+      types = obj.TokenTypes;
+      props = [];
+      
+      while ( i <= obj.NumTokens )
+        t = obj.Tokens(i, 1);
+        
+        switch ( t )
+          case types.identifier
+            props(:, end+1) = obj.make_id( i );
+            
+            if ( obj.peek_type(i+1) == types.equal )
+              [ids, i] = obj.expression( i+1, ids );
+            else
+              i = i + 1;
+            end
+            
+          case { types.new_line, types.semicolon, types.comma }
+            i = i + 1;
+          case types.end
+            break;
+          otherwise
+            error( 'Unexpected token "%s" in methods block.', token_typename(t) );
+        end
+      end
+      
+      i = obj.consume_tokens( types.end, i );
+    end
+    
+    function def = make_class_definition(obj, name, superclasses, props)
+      def = struct();
+      def.Name = name;
+      def.Superclasses = superclasses;
+      def.Properties = props;
+    end
+    
+    function [ids, i] = class_definition(obj, begin, ids)
+      if ( obj.enclosing_function() ~= 0 )
+        error( 'classdef must be a top-level declaration.' );
+      end
+      
+      obj.enter_class();
+      
+      i = obj.conditional_consume_parens( begin );
+      types = obj.TokenTypes;
+      
+      i = obj.consume_tokens( types.identifier, i );
+      class_name = i-1;
+      
+      if ( obj.peek_type(i) == types.binary_operator )
+        % classdef x < y end
+        [superclass_names, i] = obj.super_classes( i );
+      else
+        % classdef x end
+        superclass_names = {};
+      end
+      
+      while ( i <= obj.NumTokens )
+        t = obj.Tokens(i, 1);
+        
+        switch ( t )
+          case types.properties
+            [prop_ids, ids, i] = obj.properties_block( i, ids );
+            
+          case types.methods
+            [ids, i] = obj.methods_block( i, ids );
+            
+          case types.events
+            % Ingnore events block.
+            i = obj.conditional_consume_parens( i );
+            i = obj.consume_through_end( i );
+            
+          case types.enumeration
+            % Ignore enum block.
+            i = obj.conditional_consume_parens( i );
+            i = obj.consume_through_end( i );
+            
+          case { types.new_line, types.semicolon, types.comma }
+            i = i + 1;
+          case types.end
+            break;
+          otherwise
+            error( 'Unexpected token "%s" in classdef.', token_typename(t) );
+        end
+      end
+      
+      obj.ClassDefinitions{end+1} = obj.make_class_definition( class_name, superclass_names, prop_ids );
+      
+      i = obj.consume_tokens( types.end, i );
+      obj.exit_class();
+    end
+    
     function tf = is_reference_token_type(obj, type)
       tf = type == obj.TokenTypes.left_parens || ...
         type == obj.TokenTypes.left_brace || type == obj.TokenTypes.period;
@@ -1246,17 +1512,68 @@ classdef Dependencies < handle
           type == obj.TokenTypes.spmd || ...
           type == obj.TokenTypes.try || ...
           type == obj.TokenTypes.function || ...
+          type == obj.TokenTypes.classdef || ...
           type == obj.TokenTypes.switch;
     end
     
-    function tf = is_implicitly_terminated_function(obj, tokens)
+    function tf = is_end_terminable_token_in_classdef(obj, token, contents)
+      lex = contents(token(2):token(3));
+      
+      tf = obj.is_end_terminable_token( token(1) ) || ...
+        (token(1) == obj.TokenTypes.identifier && ...
+        (strcmp(lex, 'properties') || strcmp(lex, 'methods')));
+    end
+    
+    function tf = is_end_function_declaration(obj, tokens, i, keyword_counts)
+      types = obj.TokenTypes;
+      
+      tf = i > 2 && i < size(tokens, 1) && ...
+          keyword_counts(types.classdef) > 0 && ...
+          keyword_counts(types.methods) == 1 && ...
+          tokens(i+1, 1) == types.left_parens;
+    end
+    
+    function tf = is_maybe_classdef_keyword(obj, keyword_counts, t)
+      types = obj.TokenTypes;
+      
+      % Type is identifier; we're in a classdef block; but we're not in a
+      % methods, properties, events, or enum block.
+      tf = t == types.identifier && ...
+        keyword_counts(types.classdef) > 0 && ...
+        keyword_counts(types.methods) == 0 && ...
+        keyword_counts(types.properties) == 0 && ...
+        keyword_counts(types.events) == 0 && ...
+        keyword_counts(types.enumeration) == 0;
+    end
+    
+    function keyword_counts = get_keyword_counts_map(obj)
+      keyword_counts = containers.Map( 'keytype', 'double', 'valuetype', 'double' );
+      token_typenames = fieldnames( obj.TokenTypes );
+      
+      for i = 1:numel(token_typenames)
+        keyword_counts(obj.TokenTypes.(token_typenames{i})) = 0;
+      end
+    end
+    
+    function [keywords, keyword_types] = classdef_keywords(obj)
+      types = obj.TokenTypes;
+      
+      keywords = { 'methods', 'properties', 'events', 'enumeration' };
+      keyword_types = [ types.methods, types.properties, types.events, types.enumeration ];
+    end
+    
+    function analyze_tokens(obj, tokens)
+      keyword_counts = obj.get_keyword_counts_map();
+      start_stack = [];
+      
+      types = obj.TokenTypes;
+      
       parens = 0;
       braces = 0;
-      ends = 0;
       starts = 0;
-      types = obj.TokenTypes;
       funcs = 0;
-      tf = false;
+      
+      [classdef_keywords, classdef_keyword_types] = obj.classdef_keywords();
       
       for i = 1:size(tokens, 1)
         t = tokens(i, 1);
@@ -1265,20 +1582,59 @@ classdef Dependencies < handle
           case types.left_parens
             parens = parens + 1;
           case types.right_parens
-            parens = parens - 1;            
+            parens = parens - 1;
           case types.left_brace
             braces = braces + 1;
           case types.right_brace
             braces = braces - 1;
           case types.end
-            if ( braces == 0 && parens == 0 )
-              ends = ends + 1;
+            is_block_end = braces == 0 && parens == 0;
+            is_end_func_decl = is_block_end && ...
+              obj.is_end_function_declaration( tokens, i, keyword_counts );
+            
+            if ( is_block_end && ~is_end_func_decl )
+              if ( isempty(start_stack) )
+                error( 'Block is missing an `end` terminator.' );
+              end
+              
+              last = start_stack(end);
+              start_stack(end) = [];
+              
+              keyword_counts(last) = keyword_counts(last) - 1;
+              
+              starts = starts - 1;
+            elseif ( is_end_func_decl )
+              % Not an end token; this is just a function called "end"
+              obj.Tokens(i, 1) = obj.TokenTypes.identifier;
+              
             end
           otherwise
             if ( obj.is_end_terminable_token(t) )
               starts = starts + 1;
+              
               if ( t == types.function )
                 funcs = funcs + 1;
+              end
+              
+              keyword_counts(t) = keyword_counts(t) + 1;
+              start_stack(end+1) = t;
+              
+            elseif ( obj.is_maybe_classdef_keyword(keyword_counts, t) )
+              lex = obj.FileContents(tokens(i, 2):tokens(i, 3));
+              
+              for j = 1:numel(classdef_keywords)
+                is_classdef_keyword = strcmp( lex, classdef_keywords{j} );
+                
+                if ( is_classdef_keyword )
+                  token_type = classdef_keyword_types(j);
+                  
+                  starts = starts + 1;
+                  keyword_counts(token_type) = keyword_counts(token_type) + 1;
+                  start_stack(end+1) = token_type;
+                  % This is no longer an identifier; it's a block.
+                  obj.Tokens(i, 1) = token_type;
+                  break;
+                end
               end
             end
         end
@@ -1288,13 +1644,18 @@ classdef Dependencies < handle
         end
       end
       
-      if ( starts == ends )
-        return
-      elseif ( starts - ends ~= funcs )
+      if ( parens ~= 0 || braces ~= 0 )
+        error( 'Unbalanced parenthese or bracket.' );
+      end
+      
+      if ( starts == 0 )
+        obj.ImplicitFunctionEnd = false;
+        
+      elseif ( starts ~= funcs )
         error( ['Cannot mix non-`end` terminated and `end`' ...
             , ' terminated functions in function file.'] );
       else
-        tf = true;
+        obj.ImplicitFunctionEnd = true;
       end
     end
     
@@ -1363,6 +1724,7 @@ classdef Dependencies < handle
       
       sd = repmat( obj.ScopeDepth, sz );
       ef = repmat( obj.enclosing_function(), sz );
+      ec = repmat( obj.enclosing_class(), sz );
       id_id = repmat( obj.IdentifierIndex, sz );
       
       if ( nnz(token_index) == numel(token_index) )
@@ -1371,7 +1733,7 @@ classdef Dependencies < handle
         tok_start = zeros( sz );
       end
       
-      id = [ token_index; sd; ef; id_id; tok_start ];
+      id = [ token_index; sd; ef; id_id; tok_start; ec ];
       
       obj.IdentifierIndex = obj.IdentifierIndex + 1;
     end
@@ -1421,7 +1783,8 @@ classdef Dependencies < handle
       else
         for i = 1:numel(visited)
           if ( has_desktop )
-            fprintf( '\n  <a href="%s" style="font-weight:bold">%s</a>', visited{i}, visited{i} );
+            fprintf( '\n  <a href="%s" style="font-weight:bold">%s</a>' ...
+              , visited{i}, visited{i} );
           else
             fprintf( '\n  %s', visited{i} );
           end
@@ -1598,6 +1961,10 @@ if ( isempty(types) )
   types.for = 23;
   types.while = 24;
   types.postfix_operator = 25;
+  types.methods = 26;
+  types.properties = 27;
+  types.events = 28;
+  types.enumeration = 29;
 
   last = numel( fieldnames(types) ) - 1;
   kws = iskeyword();
@@ -1765,8 +2132,8 @@ stop = i - 1;
 id = contents(begin:stop);
 
 if ( is_keyword(id) )
-  if ( strcmp(id, 'end') && begin > 1 && contents(begin-1) == '.' )
-    % end used as a field access: a.end
+  if ( begin > 1 && contents(begin-1) == '.' )
+    % keyword used as a field access: a.end
     token_type = meta.token_types.identifier;
   else
     token_type = meta.token_types.(id);
