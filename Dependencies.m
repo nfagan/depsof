@@ -121,6 +121,10 @@ classdef Dependencies < handle
       end
     end
     
+    function print_parse_error(obj, func, msg)
+      fprintf( '\n Warning: Failed to parse "%s":\n  > %s', func, msg );
+    end
+    
     function parse_file(obj, mfile, first_entry, parent_func)      
       obj.VisitedFunctions(mfile) = 1;
       
@@ -134,7 +138,7 @@ classdef Dependencies < handle
       if ( isempty(file_path) )
         if ( first_entry )
           if ( obj.Warn )
-            warning( 'Function "%s" not found.', mfile );
+            fprintf( '\n Warning: Function "%s" not found.', mfile );
           end
         else          
           obj.UnresolvedDependentFunctions{end+1} = mfile;
@@ -166,20 +170,17 @@ classdef Dependencies < handle
         tokens = scan( file_contents );
       catch err
         if ( obj.Warn )
-          fprintf( '\n' );
-          warning( 'Failed to tokenize file "%s": %s', mfile, err.message );
+          fprintf( '\n Warning: Failed to tokenize file "%s": %s', mfile, err.message );
         end
         tokens = [];
       end
       
       try
         obj.begin_file( tokens, file_contents );
-        
         function_names = obj.parse();
       catch err        
         if ( obj.Warn )
-          fprintf( '\n' );
-          warning( 'Failed to parse "%s": %s', mfile, err.message );
+          obj.print_parse_error( mfile, err.message );
         end
         function_names = {};
       end
@@ -193,8 +194,7 @@ classdef Dependencies < handle
           try
             obj.parse_file( func, false, mfile );
           catch err
-            fprintf( '\n' );
-            warning( 'Failed to parse "%s": %s', func, err.message );
+            obj.print_parse_error( func, err.message );
           end
           
           obj.ParseDepth = obj.ParseDepth - 1;
@@ -912,6 +912,9 @@ classdef Dependencies < handle
           next_type == obj.TokenTypes.semicolon || ...
           next_type == obj.TokenTypes.new_line )
         return
+      elseif ( next_type == obj.TokenTypes.punctuation )
+        % ? operator
+        i = i + 1;
       end
       
       while ( obj.peek_type(i) == obj.TokenTypes.colon )
@@ -1305,8 +1308,9 @@ classdef Dependencies < handle
         end
 
         ids = [ ids, tmp ];
+        next_type = obj.peek_type(i);
 
-        if ( obj.peek_type(i) == obj.TokenTypes.comma )
+        if ( next_type == obj.TokenTypes.comma || next_type == obj.TokenTypes.semicolon )
           i = i + 1;
         end
       end
@@ -1418,6 +1422,10 @@ classdef Dependencies < handle
           case types.identifier
             props(:, end+1) = obj.make_id( i );
             
+            if ( obj.peek_type(i+1) == types.at )
+              [ids, i] = obj.expression( i+1, ids );
+            end
+            
             if ( obj.peek_type(i+1) == types.equal )
               [ids, i] = obj.expression( i+1, ids );
             else
@@ -1429,7 +1437,7 @@ classdef Dependencies < handle
           case types.end
             break;
           otherwise
-            error( 'Unexpected token "%s" in methods block.', token_typename(t) );
+            error( 'Unexpected token "%s" in properties block.', token_typename(t) );
         end
       end
       
@@ -1464,12 +1472,15 @@ classdef Dependencies < handle
         superclass_names = {};
       end
       
+      prop_ids = [];
+      
       while ( i <= obj.NumTokens )
         t = obj.Tokens(i, 1);
         
         switch ( t )
           case types.properties
-            [prop_ids, ids, i] = obj.properties_block( i, ids );
+            [tmp_ids, ids, i] = obj.properties_block( i, ids );
+            prop_ids = [ prop_ids, tmp_ids ];
             
           case types.methods
             [ids, i] = obj.methods_block( i, ids );
@@ -1663,6 +1674,21 @@ classdef Dependencies < handle
       t = token_typename( obj.peek_type(at) );
     end
     
+    function print_contents(obj, start, stop)
+      
+      start = max( 1, start );
+      stop = min( obj.NumTokens, stop );
+      
+      if ( start > obj.NumTokens )
+        return
+      end
+      
+      begin = obj.Tokens(start, 2);
+      stop_idx = obj.Tokens(stop, 3);
+      
+      fprintf( '\n%s', obj.FileContents(begin:stop_idx) );
+    end
+    
     function print_preceding(obj, at, n)
       for i = 1:n
         fprintf( '\n %s', obj.peek_tokenstr(at-i) );
@@ -1804,6 +1830,10 @@ classdef Dependencies < handle
   
   methods (Access = public, Static = true)
     function deps = of(mfile, varargin)
+      
+      %   OF -- List dependencies of function or class.
+      %
+      %     See also depsof
       
       logical_validator = ...
         @(x, name) validateattributes(x, {'logical'}, {'scalar'}, mfilename, name);
@@ -2028,11 +2058,17 @@ while ( i <= n )
   i = i + 1;
 end
 
-if ( peek(contents, i-1) == 'e' )
+last_char = peek( contents, i-1 );
+
+if ( last_char == 'e' )
+  % 1e2
   while ( i < n && is_digit(contents(i+1)) )
     i = i + 1;
   end
   
+  i = i + 1;
+elseif ( last_char == 'i' || last_char == 'j' )
+  % 1i
   i = i + 1;
 end
 
