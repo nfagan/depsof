@@ -1,6 +1,6 @@
 # depsof
 
-`depsof` is a basic (and buggy) Matlab code parser and analyser that identifies dependencies of a function or class. A dependency is a user supplied .m code file -- i.e., not a built-in Matlab function, or a function in a Matlab toolbox directory.
+`depsof` is a basic Matlab code parser and analyser that identifies dependencies of a function or class. A dependency is a user supplied code file -- i.e., not a built-in Matlab function, or a function in a Matlab toolbox directory.
 
 ## usage
 
