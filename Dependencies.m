@@ -133,7 +133,17 @@ classdef Dependencies < handle
         return
       end
       
-      file_path = which( mfile );
+      file_path = which( mfile, '-all' );
+      
+      if ( iscellstr(file_path) )
+        if ( numel(file_path) >= 1 )
+          file_path = file_path{1};
+        else
+          file_path = '';
+        end
+      else
+        error( 'Internval error: Expected which(xx, ''-all'') to return a cell array of strings.' );
+      end
       
       if ( isempty(file_path) )
         if ( first_entry )
