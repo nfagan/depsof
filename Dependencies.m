@@ -1,3 +1,11 @@
+%   DEPENDENCIES -- Determine function / class dependencies.
+%
+%     This class has a private constructor; a Dependencies object cannot be
+%     directly constructed. Instead, use the `depsof` function or
+%     `Dependencies.of` static method.
+%
+%     See also depsof, Dependencies.of
+
 classdef Dependencies < handle
   properties (Access = public)
     VisitedFiles;
@@ -35,6 +43,15 @@ classdef Dependencies < handle
   
   methods (Access = private)
     function obj = Dependencies()
+      
+      %   DEPENDENCIES -- Determine function / class dependencies.
+      %
+      %     This is a private constructor; a Dependencies object cannot be
+      %     directly constructed. Instead, use the `depsof` function or
+      %     `Dependencies.of` static method.
+      %
+      %     See also depsof, Dependencies.of
+      
       obj.VisitedFiles = containers.Map();
       obj.VisitedFunctions = containers.Map();
       obj.TokenTypes = token_types();
