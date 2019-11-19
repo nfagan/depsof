@@ -1,23 +1,26 @@
 function test_sibling_child(a, b, c)
 
-sibling();
+sibling();  % should be found, unmarked.
+child();  % should be unresolved.
+
+  function parentss()    
+    function another()
+    end
+  end
 
 end
 
-function sibling()
+function s = sibling()
+  parentss(); % should be unresolved.
 
   function child()
-    sibling();
-    child();
-    non_existent();
-    
-    function another()
-      function another2()
-        another()
-      end
-    end    
+    sibling();  % should be found, unmarked.
+    another(); % should be unresolved.
   end
+end
 
-%   child();
-
+function s = sibling_empty()
+  function child1()
+    sibling_empty();  % should be found, unmarked.
+  end
 end

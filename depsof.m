@@ -38,10 +38,6 @@ function deps = depsof(varargin)
 %
 %     Notes & limitations //
 %
-%     DEPSOF will mark private functions as unresolved, even if they 
-%     would be visible to the calling function. As a consequence, private
-%     functions cannot be traversed for dependencies.
-%
 %     DEPSOF may mark class methods (and other functions that dispatch
 %     based on their arguments) as unresolved.
 %

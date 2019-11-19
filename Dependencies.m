@@ -1146,9 +1146,7 @@ classdef Dependencies < handle
             % Functions with implicit ends do not nest.
             return
           else
-            obj.ScopeDepth = obj.ScopeDepth + 1;
             [new_ids, i] = obj.function_definition( i, {} );
-            obj.ScopeDepth = obj.ScopeDepth - 1;
             ids(end+1:end+numel(new_ids)) = new_ids;
           end
           
@@ -1174,11 +1172,13 @@ classdef Dependencies < handle
     end
     
     function enter_function(obj)
+      obj.ScopeDepth = obj.ScopeDepth + 1;
       obj.EnclosingFunction(end+1) = numel( obj.FunctionDefinitions ) + 1;
     end
     
     function exit_function(obj)
       obj.EnclosingFunction(end) = [];
+      obj.ScopeDepth = obj.ScopeDepth - 1;
     end
     
     function f = enclosing_function(obj)
@@ -1209,7 +1209,6 @@ classdef Dependencies < handle
       enclosing_func = obj.enclosing_function();
       enclosing_class = obj.enclosing_class();
       
-      obj.ScopeDepth = obj.ScopeDepth + 1;
       obj.enter_function();
       
       current_func = obj.enclosing_function();
@@ -1221,7 +1220,6 @@ classdef Dependencies < handle
       [ids, i] = obj.expression( i-1, ids );
       
       obj.exit_function();
-      obj.ScopeDepth = obj.ScopeDepth - 1;
     end
     
     function [ids, i] = function_definition(obj, begin, ids, has_body)

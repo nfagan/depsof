@@ -7,4 +7,6 @@ if all(deltaP>0)
   ncp=[ncp(1)-abs(ncp{1}) deps.run_tests.another(ncp{1}) deltaP(1)];
 end
 
+y = [a; [b + c, d()]]';
+
 end

@@ -20,7 +20,8 @@ end
 function run_test_imports()
 
 func_name = 'test_imports';
-options = make_options( {'deps.run_tests'}, {} );
+expect_resolved = {'deps.run_tests', 'pkg.Class', 'pkg.nested.nested'};
+options = make_options( expect_resolved, {} );
 
 errs = run_test( func_name, options );
 print_as_warning( errs );
@@ -30,7 +31,9 @@ end
 function run_test_sibling_child()
 
 func_name = 'test_sibling_child';
-options = make_options( {}, {'non_existent'} );
+expect_unresolved = { 'child', 'parentss', 'another' };
+
+options = make_options( {}, expect_unresolved );
 
 errs = run_test( func_name, options );
 print_as_warning( errs );
