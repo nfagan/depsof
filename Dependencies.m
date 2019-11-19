@@ -1763,7 +1763,17 @@ classdef Dependencies < handle
       ind = begin + numel( types );
     end
     
-    function id = make_id(obj, token_index)      
+    function id = make_id(obj, token_index)
+      
+      %   MAKE_ID -- Create identifier components.
+      %
+      %     id is an 6xN array of identifier components. 
+      %     Row 1 is the index into the original array of tokens.
+      %     Row 2 is the scope depth of the identifier.
+      %     Row 3 is the index of the enclosing function of the identifier.
+      %     Row 4 is the unique index of this identifier.
+      %     Row 5 is the index of the enclosing class.
+      
       sz = size( token_index );
       
       sd = repmat( obj.ScopeDepth, sz );
