@@ -17,17 +17,20 @@ classdef Dependencies < handle
     ToolboxDirectory;
     ParseDepth;
     ResolvedDependentFunctions;
+    ResolvedDependentFilePaths;
     UnresolvedDependentFunctions;
     ResolvedIn;
     UnresolvedIn;
     Verbose;
     Recursive;
+    IncludeDependencyGraph;
     ImplicitFunctionEnd;
     ErrorHandler;
     FileContents;
     SkipToolboxFunctions;
     Warn;
     DisallowClassdef;
+    DependencyGraph;
   end
   
   methods (Access = private)
@@ -49,17 +52,20 @@ classdef Dependencies < handle
       obj.ToolboxDirectory = toolboxdir( '' );
       obj.ParseDepth = 0;
       obj.ResolvedDependentFunctions = {};
+      obj.ResolvedDependentFilePaths = {};
       obj.UnresolvedDependentFunctions = {};
       obj.ResolvedIn = {};
       obj.UnresolvedIn = {};
       obj.Verbose = false;
       obj.Recursive = false;
+      obj.IncludeDependencyGraph = false;
       obj.ImplicitFunctionEnd = false;
       obj.ErrorHandler = 'warn';
       obj.FileContents = [];
       obj.SkipToolboxFunctions = true;
       obj.Warn = true;
       obj.DisallowClassdef = false;
+      obj.DependencyGraph = digraph();
     end
     
     function tf = is_mex_file(obj, file_path)
@@ -83,6 +89,10 @@ classdef Dependencies < handle
       tf = numel( file_path ) >= 2 && strcmp( file_path(end-1:end), '.p' );
     end
     
+    function tf = already_visited(obj, mfile, file_path)
+      tf = isKey( obj.VisitedFiles, file_path );
+    end
+    
     function tf = should_skip_function(obj, mfile, file_path)
       tf = obj.is_builtin( mfile, file_path ) || ...
       (obj.is_toolbox_function(file_path) && obj.SkipToolboxFunctions) || ...
@@ -90,6 +100,44 @@ classdef Dependencies < handle
         obj.is_java_method(file_path) || ...
         obj.is_p_file(file_path) || ...
         isKey( obj.VisitedFiles, file_path );
+    end
+    
+    function tf = is_node(obj, node_id)
+      try
+        ind = findnode( obj.DependencyGraph, node_id );
+        tf = ind ~= 0;
+      catch
+        tf = false;
+      end
+    end
+    
+    function require_node(obj, node_id)
+      if ( ~is_node(obj, node_id) )
+        obj.DependencyGraph = addnode( obj.DependencyGraph, node_id );
+      end
+    end
+    
+    function require_edge(obj, from, to)
+      if ( findedge(obj.DependencyGraph, from, to) == 0 )
+        obj.DependencyGraph = addedge( obj.DependencyGraph, from, to );
+      end
+    end
+    
+    function connect_nodes(obj, mfile, parent_func)
+      obj.require_node( mfile );
+      
+      if ( ~isempty(parent_func) )
+        obj.require_node( parent_func );        
+        obj.require_edge( parent_func, mfile );
+      end
+    end
+    
+    function mark_visited(obj, mfile, parent_func, file_path)
+      obj.VisitedFiles(file_path) = 1;
+      
+      if ( obj.IncludeDependencyGraph )
+        obj.connect_nodes( mfile, parent_func );
+      end
     end
     
     function imports = make_imports_container(obj)
@@ -125,14 +173,18 @@ classdef Dependencies < handle
       fprintf( '\n Warning: Failed to parse "%s":\n  > %s', func, msg );
     end
     
-    function parse_file(obj, mfile, first_entry, parent_func)      
-      obj.VisitedFunctions(mfile) = 1;
-      
-      % Early-out for common built-ins like sum, error, etc. Avoids `which`.
-      if ( is_known_builtin(mfile) )
-        return
-      end
-      
+    function add_resolved_dependency(obj, mfile, parent_func, file_path)
+      obj.ResolvedDependentFunctions{end+1} = mfile;
+      obj.ResolvedDependentFilePaths{end+1} = file_path;
+      obj.ResolvedIn{end+1} = parent_func;
+    end
+    
+    function add_unresolved_dependency(obj, mfile, parent_func)
+      obj.UnresolvedDependentFunctions{end+1} = mfile;
+      obj.UnresolvedIn{end+1} = parent_func;
+    end
+    
+    function file_path = find_file(obj, mfile)
       file_path = which( mfile, '-all' );
       
       if ( iscellstr(file_path) )
@@ -142,8 +194,20 @@ classdef Dependencies < handle
           file_path = '';
         end
       else
-        error( 'Internal error: Expected which(xx, ''-all'') to return a cell array of strings.' );
+        error( ['Internal error: Expected which(xx, ''-all'') to return a' ...
+          , ' cell array of strings; instead, its class was "%s".'], class(file_path) );
       end
+    end
+    
+    function parse_file(obj, mfile, first_entry, parent_func)      
+      obj.VisitedFunctions(mfile) = 1;
+      
+      % Early-out for common built-ins like sum, error, etc. Avoids `which`.
+      if ( is_known_builtin(mfile) )
+        return
+      end
+      
+      file_path = obj.find_file( mfile );
       
       if ( isempty(file_path) )
         if ( first_entry )
@@ -151,25 +215,25 @@ classdef Dependencies < handle
             fprintf( '\n Warning: Function "%s" not found.', mfile );
           end
         else          
-          obj.UnresolvedDependentFunctions{end+1} = mfile;
-          obj.UnresolvedIn{end+1} = parent_func;
+          obj.add_unresolved_dependency( mfile, parent_func );
         end
         return
       end
       
-      if ( obj.should_skip_function(mfile, file_path) )
+      if ( obj.IncludeDependencyGraph && obj.already_visited(mfile, file_path) )
+        obj.connect_nodes( mfile, parent_func );
+        
+      elseif ( obj.should_skip_function(mfile, file_path) )
         if ( obj.is_mex_file(file_path) )
-          obj.ResolvedDependentFunctions{end+1} = mfile;
-          obj.ResolvedIn{end+1} = parent_func;
+          obj.add_resolved_dependency( mfile, parent_func, file_path );
         end
         
         return
       elseif ( ~first_entry )
-        obj.ResolvedDependentFunctions{end+1} = mfile;
-        obj.ResolvedIn{end+1} = parent_func;
+        obj.add_resolved_dependency( mfile, parent_func, file_path );
       end
       
-      obj.VisitedFiles(file_path) = 1;
+      obj.mark_visited( mfile, parent_func, file_path );
       
       if ( ~obj.Recursive && obj.ParseDepth > 0 )
         return
@@ -1881,6 +1945,7 @@ classdef Dependencies < handle
       p.addParameter( 'SkipToolboxes', true, @(x) logical_validator(x, 'SkipToolboxes') );
       p.addParameter( 'Display', false, @(x) logical_validator(x, 'Display') );
       p.addParameter( 'Warn', true, @(x) logical_validator(x, 'Warn') );
+      p.addParameter( 'Graph', false, @(x) logical_validator(x, 'Graph') );
       
       p.parse( varargin{:} );
       
@@ -1889,6 +1954,7 @@ classdef Dependencies < handle
       obj.Recursive = p.Results.Recursive;
       obj.SkipToolboxFunctions = p.Results.SkipToolboxes;
       obj.Warn = p.Results.Warn;
+      obj.IncludeDependencyGraph = p.Results.Graph;
       
       mfile = Dependencies.ensure_cellstr_func_names( mfile );
       obj.parse_files( mfile );
@@ -1898,9 +1964,16 @@ classdef Dependencies < handle
       
       deps = struct();
       deps.Resolved = sorted_rs;
+      deps.ResolvedFiles = obj.ResolvedDependentFilePaths(sorted_rs_idx);
       deps.Unresolved = sorted_urs;
       deps.ResolvedIn = obj.ResolvedIn(sorted_rs_idx);
       deps.UnresolvedIn = obj.UnresolvedIn(sorted_urs_idx);
+      
+      if ( p.Results.Graph )
+        deps.Graph = obj.DependencyGraph;
+      else
+        deps.Graph = [];
+      end
       
       if ( p.Results.Display )
         Dependencies.display_results( deps );

@@ -10,13 +10,15 @@ function deps = depsof(varargin)
 %     function (like sum) or an m-file residing in a Matlab toolbox (like
 %     nanmean).
 %
-%     `deps` has fields 'Resolved', 'Unresolved', 'ResolvedIn', and
-%     'UnresolvedIn'. 'Resolved' is a list of external functions or classes
-%     referenced in `function_name` that exist on Matlab's search path;
-%     'Unresolved' is a list of identifiers in `function_name` that appear
-%     to be function references, but which do not exist on Matlab's search 
-%     path. 'ResolvedIn' and 'UnresolvedIn' give the name of the function in
-%     which the corresponding identifiers appear.
+%     `deps` has fields 'Resolved', 'ResolvedFiles', 'Unresolved', 
+%     'ResolvedIn', and 'UnresolvedIn'. 'Resolved' is a list of external 
+%     function or class names referenced in `function_name` that exist on 
+%     Matlab's search path, and 'ResolvedFiles' contains the absolute path
+%     to each function or class file. 'Unresolved' is a list of identifiers 
+%     in `function_name` that appear to be function references, but which 
+%     do not exist on Matlab's search path. 'ResolvedIn' and 'UnresolvedIn' 
+%     give the name of the function in which the corresponding identifiers 
+%     appear.
 %
 %     deps = DEPSOF( function_names ); where `function_names` is a cell
 %     array of strings, searches each function.
