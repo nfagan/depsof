@@ -10,4 +10,4 @@ For additional options, see `help depsof`.
 
 ##  known issues
 
-The parser is buggy; in particular, complex matrix constructions `[a; [b + c, d()]]';` may fail to parse correctly. Imports are not handled correctly in all cases, and there is only preliminary support for classdef files.
+The parser is buggy; some files may fail to parse correctly. Imports are not handled correctly in all cases, and there is only preliminary support for classdef files.
