@@ -1970,7 +1970,7 @@ classdef Dependencies < handle
       deps.UnresolvedIn = obj.UnresolvedIn(sorted_urs_idx);
       
       if ( p.Results.Graph )
-        deps.Graph = obj.DependencyGraph;
+        deps.Graph = DependencyGraph( obj.DependencyGraph );
       else
         deps.Graph = [];
       end
