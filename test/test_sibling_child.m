@@ -1,4 +1,4 @@
-function test_sibling_child(a, b, c)
+function test_sibling_child()
 
 sibling();  % should be found, unmarked.
 child();  % should be unresolved.

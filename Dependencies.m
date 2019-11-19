@@ -561,6 +561,15 @@ classdef Dependencies < handle
         %     3) is a child of the current function.
 
         % 1) Ancestor
+        %
+        % First check top-level
+        top_level_funcs = find( cellfun(@(x) x{4} == 0, obj.FunctionDefinitions) );
+        
+        if ( obj.is_visible_function_name(top_level_funcs, var_id) )
+          % Visible top level function.
+          continue;
+        end
+        
         is_less_scope = ids(2, :) < scope;
         funcs_less_scope = unique( ids(3, is_less_scope) );
 

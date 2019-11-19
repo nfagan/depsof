@@ -2,6 +2,7 @@ function run_tests()
 
 run_test_imports();
 run_test_sibling_child();
+run_test_empty_parent();
 run_test_inputs();
 run_test_nested_referencing()
 
@@ -22,6 +23,17 @@ function run_test_imports()
 func_name = 'test_imports';
 expect_resolved = {'deps.run_tests', 'pkg.Class', 'pkg.nested.nested'};
 options = make_options( expect_resolved, {} );
+
+errs = run_test( func_name, options );
+print_as_warning( errs );
+
+end
+
+function run_test_empty_parent()
+
+func_name = 'test_empty_parent';
+
+options = make_options( {}, {} );
 
 errs = run_test( func_name, options );
 print_as_warning( errs );
