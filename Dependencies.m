@@ -142,7 +142,7 @@ classdef Dependencies < handle
           file_path = '';
         end
       else
-        error( 'Internval error: Expected which(xx, ''-all'') to return a cell array of strings.' );
+        error( 'Internal error: Expected which(xx, ''-all'') to return a cell array of strings.' );
       end
       
       if ( isempty(file_path) )
@@ -158,6 +158,11 @@ classdef Dependencies < handle
       end
       
       if ( obj.should_skip_function(mfile, file_path) )
+        if ( obj.is_mex_file(file_path) )
+          obj.ResolvedDependentFunctions{end+1} = mfile;
+          obj.ResolvedIn{end+1} = parent_func;
+        end
+        
         return
       elseif ( ~first_entry )
         obj.ResolvedDependentFunctions{end+1} = mfile;
@@ -761,8 +766,8 @@ classdef Dependencies < handle
       prev = char( 0 );
       first_identifier = true;
       
-      while ( i <= n )
-        if ( obj.peek_type(i) == obj.TokenTypes.identifier )          
+      while ( i <= n )        
+        if ( obj.peek_type(i) == obj.TokenTypes.identifier )           
           if ( ~aggregate && ~first_identifier && obj.is_preceding_reference(i-1) )
             break;
           end
@@ -785,6 +790,9 @@ classdef Dependencies < handle
         end
         
         if ( obj.peek_type(i) == obj.TokenTypes.left_parens )
+          % Must be a new identifier.
+          aggregate = false;
+
           [ids, i, includes_end] = obj.parens_reference_expression( i, ids );
 
           if ( includes_end || prev == '.' )
@@ -829,6 +837,8 @@ classdef Dependencies < handle
     
     function [ids, i] = bracket_or_brace_expression(obj, begin, ids, terminator)      
       i = begin + 1;
+      
+      % @TODO: Handle case where space is a delimiter y = [a b c(1, 2)];
       
       while ( i <= obj.NumTokens && obj.peek_type(i) ~= terminator )        
         if ( obj.peek_type(i) == obj.TokenTypes.identifier )
@@ -2343,9 +2353,9 @@ function tf = is_known_builtin(func_name)
     funcs = containers.Map();
     
     known_builtins = { ...
-        'error', 'numel', 'length', 'size', 'sum', 'prod' ...
-      , 'char', 'double', 'single', 'cell', 'struct', 'logical' ...
-      , 'arrayfun', 'cellfun', 'structfun' ...
+        'error', 'numel', 'ndgrid', 'length', 'size', 'sum', 'prod' ...
+      , 'char', 'double', 'get', 'single', 'cell', 'struct', 'logical' ...
+      , 'arrayfun', 'cellfun', 'set', 'structfun' ...
       , 'strcmp', 'strncmp', 'strcmpi', 'strncmpi' ...
     };
 

@@ -10,7 +10,7 @@ end
 function run_test_nested_referencing()
 
 func_name = 'test_nested_referencing';
-options = make_options( {}, {} );
+options = make_options( {}, {'something.one.two'} );
 
 errs = run_test( func_name, options );
 print_as_warning( errs );

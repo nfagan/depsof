@@ -7,9 +7,17 @@ end
 function sibling()
 
   function child()
-    non_existent();
     sibling();
     child();
+    non_existent();
+    
+    function another()
+      function another2()
+        another()
+      end
+    end    
   end
+
+%   child();
 
 end
