@@ -239,8 +239,9 @@ classdef Dependencies < handle
       
       if ( obj.IncludeDependencyGraph && obj.already_visited(mfile, file_path) )
         obj.connect_nodes( mfile, parent_func );
+      end
         
-      elseif ( obj.should_skip_function(mfile, file_path) )
+      if ( obj.should_skip_function(mfile, file_path) )
         if ( obj.is_mex_file(file_path) )
           obj.add_resolved_dependency( mfile, parent_func, file_path );
         end
@@ -567,6 +568,13 @@ classdef Dependencies < handle
         
         wildcard_import_names = obj.make_wildcard_import_names( imports, wildcard_import_starts );
       end
+      
+      if ( numel(identifiers_this_func) > 0 )
+        % Parent function ids.
+        enclosing_functions_in_definitions = cellfun( @(x) x{4}, obj.FunctionDefinitions );
+        % Indices of top level functions.
+        top_level_func_indices = find( enclosing_functions_in_definitions == 0 );
+      end
 
       for j = 1:numel(identifiers_this_func)
         id_idx = identifiers_this_func(j);
@@ -642,11 +650,7 @@ classdef Dependencies < handle
         %     3) is a child of the current function.
 
         % 1) Ancestor
-        %
-        % First check top-level
-        top_level_funcs = find( cellfun(@(x) x{4} == 0, obj.FunctionDefinitions) );
-        
-        if ( obj.is_visible_function_name(top_level_funcs, var_id) )
+        if ( obj.is_visible_function_name(top_level_func_indices, var_id) )
           % Visible top level function.
           continue;
         end
@@ -660,10 +664,8 @@ classdef Dependencies < handle
 
         % 2) Sibling
         if ( function_def_index > 0 )
-          current_enclosing = obj.FunctionDefinitions{current_func_index}{4};
-
-          sibling_functions = find( cellfun(@(x) isequal(current_enclosing, x{4}) ...
-            , obj.FunctionDefinitions) );
+          current_enclosing = obj.FunctionDefinitions{current_func_index}{4};          
+          sibling_functions = find( enclosing_functions_in_definitions == current_enclosing );
 
           if ( obj.is_visible_function_name(sibling_functions, var_id) )  %#ok
             continue;
@@ -671,8 +673,7 @@ classdef Dependencies < handle
         end
 
         % 3) Child
-        child_functions = find( cellfun(@(x) isequal(current_func_index, x{4}) ...
-          , obj.FunctionDefinitions) );
+        child_functions = find( enclosing_functions_in_definitions == current_func_index );
 
         if ( obj.is_visible_function_name(child_functions, var_id) )  %#ok
           continue;
@@ -2009,6 +2010,7 @@ meta = make_meta();
 while ( i <= n )
   c = file_contents(i);
   
+  % if ( is_whitespace(c) && c ~= newline )
   if ( is_whitespace(c) && c ~= 10 )
     i = i + 1;
     continue;
@@ -2463,7 +2465,7 @@ function tf = is_known_builtin(func_name)
         'error', 'numel', 'ndgrid', 'length', 'size', 'sum', 'prod' ...
       , 'char', 'double', 'get', 'single', 'cell', 'struct', 'logical' ...
       , 'arrayfun', 'cellfun', 'set', 'structfun' ...
-      , 'strcmp', 'strncmp', 'strcmpi', 'strncmpi' ...
+      , 'strcmp', 'strncmp', 'strcmpi', 'strncmpi', 'sprintf' ...
     };
 
     for i = 1:numel(known_builtins)

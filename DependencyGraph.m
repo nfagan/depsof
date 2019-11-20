@@ -11,6 +11,14 @@ classdef DependencyGraph
       
       obj.Graph = dgraph;     
     end
+
+    function s = source_indices(obj)
+      [~, s] = ismember( sources(obj), nodes(obj) );
+    end
+
+    function s = sink_indices(obj)
+      [~, s] = ismember( sinks(obj), nodes(obj) );
+    end
     
     function s = sources(obj)
       e = edges( obj );
@@ -40,6 +48,7 @@ classdef DependencyGraph
     
     function h = plot(obj)
       h = plot( obj.Graph );
+      labelnode( h, 1:numnodes(obj.Graph), nodes(obj) );
     end
     
     function obj = set.Graph(obj, to)

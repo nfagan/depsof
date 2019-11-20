@@ -49,7 +49,7 @@ function deps = depsof(varargin)
 %
 %     DEPSOF has incomplete support for classdef files.
 %
-%     See also mfilename, which
+%     See also matlab.codetools.requiredFilesAndProducts, mfilename, which
 
 deps = Dependencies.of( varargin{:} );
 
