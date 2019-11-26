@@ -4,7 +4,7 @@
 %     directly constructed. Instead, use the `depsof` function or
 %     `Dependencies.of` static method.
 %
-%     See also depsof, Dependencies.of
+%     See also depsof
 
 classdef Dependencies < handle
   properties (Access = public)
@@ -201,6 +201,16 @@ classdef Dependencies < handle
       obj.UnresolvedIn{end+1} = parent_func;
     end
     
+    function handle_file_not_found(obj, mfile, parent_func, first_entry)
+      if ( first_entry )
+        if ( obj.Warn )
+          fprintf( '\n Warning: Function "%s" not found.', mfile );
+        end
+      else          
+        obj.add_unresolved_dependency( mfile, parent_func );
+      end
+    end
+    
     function file_path = find_file(obj, mfile)
       file_path = which( mfile, '-all' );
       
@@ -216,7 +226,18 @@ classdef Dependencies < handle
       end
     end
     
-    function parse_file(obj, mfile, first_entry, parent_func)      
+    function tokens = scan_file(obj, file_contents, mfile)
+      try
+        tokens = scan( file_contents );
+      catch err
+        if ( obj.Warn )
+          fprintf( '\n Warning: Failed to tokenize file "%s": %s', mfile, err.message );
+        end
+        tokens = [];
+      end
+    end
+    
+    function parse_file(obj, mfile, first_entry, parent_func)     
       obj.VisitedFunctions(mfile) = 1;
       
       % Early-out for common built-ins like sum, error, etc. Avoids `which`.
@@ -227,13 +248,7 @@ classdef Dependencies < handle
       file_path = obj.find_file( mfile );
       
       if ( isempty(file_path) )
-        if ( first_entry )
-          if ( obj.Warn )
-            fprintf( '\n Warning: Function "%s" not found.', mfile );
-          end
-        else          
-          obj.add_unresolved_dependency( mfile, parent_func );
-        end
+        obj.handle_file_not_found( mfile, parent_func, first_entry );
         return
       end
       
@@ -262,15 +277,7 @@ classdef Dependencies < handle
       end
 
       file_contents = fileread( file_path );
-
-      try
-        tokens = scan( file_contents );
-      catch err
-        if ( obj.Warn )
-          fprintf( '\n Warning: Failed to tokenize file "%s": %s', mfile, err.message );
-        end
-        tokens = [];
-      end
+      tokens = obj.scan_file( file_contents, mfile );
       
       try
         obj.begin_file( tokens, file_contents );
@@ -295,6 +302,8 @@ classdef Dependencies < handle
           end
           
           obj.ParseDepth = obj.ParseDepth - 1;
+        elseif ( obj.IncludeDependencyGraph )
+          obj.connect_nodes( func, mfile );
         end
       end
     end
@@ -716,7 +725,7 @@ classdef Dependencies < handle
           func_name = obj.make_function_name( ids, id_idx, inf );
         end
 
-        if ( ~isKey(function_names, func_name) && ~isKey(obj.VisitedFunctions, func_name) )
+        if ( ~isKey(function_names, func_name) )
           function_names(func_name) = 1;
         end
       end
