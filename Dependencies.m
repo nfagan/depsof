@@ -110,6 +110,20 @@ classdef Dependencies < handle
       tf = isKey( obj.VisitedFiles, file_path );
     end
     
+    function tf = is_traversible_function(obj, mfile, file_path)
+      tf = ~obj.is_builtin( mfile, file_path ) && ...
+      (~obj.is_toolbox_function( file_path ) || ~obj.SkipToolboxFunctions) && ...
+        ~obj.is_mex_file( file_path ) && ...
+        ~obj.is_java_method( file_path ) && ...
+        ~obj.is_p_file( file_path );
+    end
+    
+    function tf = is_markable_dependent_function(obj, mfile, file_path)
+      tf = ~obj.is_builtin( mfile, file_path ) && ...
+        (~obj.is_toolbox_function( file_path ) || ~obj.SkipToolboxFunctions) && ...
+        ~obj.is_java_method( file_path );
+    end
+    
     function tf = should_skip_function(obj, mfile, file_path)
       tf = obj.is_builtin( mfile, file_path ) || ...
       (obj.is_toolbox_function(file_path) && obj.SkipToolboxFunctions) || ...
@@ -143,7 +157,8 @@ classdef Dependencies < handle
     function connect_nodes(obj, mfile, parent_func)
       obj.require_node( mfile );
       
-      if ( ~isempty(parent_func) )
+      % Disallow self loops.
+      if ( ~isempty(parent_func) && ~strcmp(mfile, parent_func) )
         obj.require_node( parent_func );        
         obj.require_edge( parent_func, mfile );
       end
@@ -206,7 +221,7 @@ classdef Dependencies < handle
         if ( obj.Warn )
           fprintf( '\n Warning: Function "%s" not found.', mfile );
         end
-      else          
+      else
         obj.add_unresolved_dependency( mfile, parent_func );
       end
     end
@@ -237,48 +252,70 @@ classdef Dependencies < handle
       end
     end
     
-    function parse_file(obj, mfile, first_entry, parent_func)     
-      obj.VisitedFunctions(mfile) = 1;
+    function v = make_visited_function(obj, mfile)
+      v = struct();
       
-      % Early-out for common built-ins like sum, error, etc. Avoids `which`.
       if ( is_known_builtin(mfile) )
+        v.is_markable_dependency = false;
+        
+      else
+        v.file_path = obj.find_file( mfile );
+        v.resolved = ~isempty( v.file_path );
+        v.is_traversible = obj.is_traversible_function( mfile, v.file_path );
+        v.is_markable_dependency = obj.is_markable_dependent_function( mfile, v.file_path );
+      end
+    end
+    
+    function conditional_connect_nodes_between_visited_files(obj, mfile, parent_func)
+      if ( obj.IncludeDependencyGraph )
+        visited_func_info = obj.VisitedFunctions(mfile);
+
+        if ( visited_func_info.is_markable_dependency )
+          obj.connect_nodes( mfile, parent_func );
+        end
+      end
+    end
+    
+    function parse_file(obj, mfile, first_entry, parent_func)        
+      if ( isKey(obj.VisitedFunctions, mfile) )
+        obj.conditional_connect_nodes_between_visited_files( mfile, parent_func );
+        return;
+      end
+      
+      visited_function_info = obj.make_visited_function( mfile );
+      obj.VisitedFunctions(mfile) = visited_function_info;
+      
+      % Early-out for common built-ins like sum, error, etc.
+      if ( ~visited_function_info.is_markable_dependency )
         return
       end
       
-      file_path = obj.find_file( mfile );
-      
-      if ( isempty(file_path) )
+      if ( ~visited_function_info.resolved )
         obj.handle_file_not_found( mfile, parent_func, first_entry );
         return
+      elseif ( isKey(obj.VisitedFiles, visited_function_info.file_path) )
+        return
       end
       
-      if ( obj.IncludeDependencyGraph && obj.already_visited(mfile, file_path) )
-        obj.connect_nodes( mfile, parent_func );
-      end
+      obj.VisitedFiles(visited_function_info.file_path) = mfile;
+      
+      if ( ~first_entry && visited_function_info.is_markable_dependency )
+        obj.add_resolved_dependency( mfile, parent_func, visited_function_info.file_path );
         
-      if ( obj.should_skip_function(mfile, file_path) )
-        if ( obj.is_mex_file(file_path) )
-          obj.add_resolved_dependency( mfile, parent_func, file_path );
+        if ( obj.IncludeDependencyGraph )
+          obj.connect_nodes( mfile, parent_func );
         end
-        
-        return
-      elseif ( ~first_entry )
-        obj.add_resolved_dependency( mfile, parent_func, file_path );
       end
       
-      obj.mark_visited( mfile, parent_func, file_path );
+      can_traverse = visited_function_info.is_traversible && (first_entry || obj.Recursive);
       
-      if ( ~obj.Recursive && obj.ParseDepth > 0 )
+      if ( ~can_traverse )
         return
       end
       
-      if ( obj.Verbose )
-        fprintf( '\n Parsing "%s" ...', mfile );
-      end
-
-      file_contents = fileread( file_path );
+      file_contents = fileread( visited_function_info.file_path );
       tokens = obj.scan_file( file_contents, mfile );
-      
+
       try
         obj.begin_file( tokens, file_contents );
         function_names = obj.parse();
@@ -290,21 +327,15 @@ classdef Dependencies < handle
       end
       
       for i = 1:numel(function_names)
-        func = function_names{i};
-        
-        if ( ~isKey(obj.VisitedFunctions, func) )
-          obj.ParseDepth = obj.ParseDepth + 1;
+        obj.ParseDepth = obj.ParseDepth + 1;
           
-          try
-            obj.parse_file( func, false, mfile );
-          catch err
-            obj.print_parse_error( func, err.message );
-          end
-          
-          obj.ParseDepth = obj.ParseDepth - 1;
-        elseif ( obj.IncludeDependencyGraph )
-          obj.connect_nodes( func, mfile );
+        try
+          obj.parse_file( function_names{i}, false, mfile );
+        catch err
+          obj.print_parse_error( function_names{i}, err.message );
         end
+
+        obj.ParseDepth = obj.ParseDepth - 1;
       end
     end
     
