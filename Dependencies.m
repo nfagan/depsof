@@ -584,6 +584,29 @@ classdef Dependencies < handle
       tf = true;
     end
     
+    function [tf, import_key] = check_has_imports(obj, function_def_index)
+      if ( isKey(obj.Imports, function_def_index) )
+        % Definitely has an import.
+        tf = true;
+        import_key = function_def_index;
+        return
+      end
+      
+      % Otherwise, might have an import if this is anonymous function whose
+      % parent function has an import.
+      tf = false;
+      import_key = -1;
+      
+      if ( function_def_index > 0 )
+        def = obj.FunctionDefinitions{function_def_index};
+
+        if ( obj.is_anonymous_function_definition(def) )
+          parent_func_index = obj.enclosing_function_index( def );
+          [tf, import_key] = obj.check_has_imports( parent_func_index );
+        end
+      end
+    end
+    
     function insert_names_for_function(obj, ids, function_names, function_def_index ...
         , is_variable, is_identifier_start)
       
@@ -592,15 +615,15 @@ classdef Dependencies < handle
       identifiers_this_func = find( is_func & ~is_variable & is_identifier_start );
       
       imports = [];
-      has_imports = isKey( obj.Imports, function_def_index );
+      [has_imports, import_key] = obj.check_has_imports( function_def_index );
       
       % Check imports
       if ( has_imports )
-        imports = obj.Imports(function_def_index);
+        imports = obj.Imports(import_key);
 
         is_import_start = obj.is_identifier_start( imports );
         is_import_stop = obj.is_identifier_stop( imports );
-        is_import_func = obj.is_id_matching_function( imports, function_def_index );
+        is_import_func = obj.is_id_matching_function( imports, import_key );
         
         is_complete_import = ~imports(7, :);
         complete_import_stops = find( is_import_func & is_import_stop & is_complete_import );
@@ -1330,6 +1353,16 @@ classdef Dependencies < handle
     function c = enclosing_class(obj)
       assert( ~isempty(obj.EnclosingClass) );
       c = obj.EnclosingClass(end);
+    end
+    
+    function ind = enclosing_function_index(obj, def)
+      % See also make_function_definition
+      ind = def{4};
+    end
+    
+    function tf = is_anonymous_function_definition(obj, def)
+      % Anonymous functions have no name.
+      tf = isempty( def{1} );
     end
     
     function def = make_function_definition(obj, name, inputs, outputs, enclosing_func, enclosing_class)

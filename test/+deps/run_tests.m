@@ -5,6 +5,7 @@ run_test_sibling_child();
 run_test_empty_parent();
 run_test_inputs();
 run_test_nested_referencing()
+run_test_imports_with_anonymous_functions();
 
 end
 
@@ -12,6 +13,17 @@ function run_test_nested_referencing()
 
 func_name = 'test_nested_referencing';
 options = make_options( {}, {'something.one.two'} );
+
+errs = run_test( func_name, options );
+print_as_warning( errs );
+
+end
+
+function run_test_imports_with_anonymous_functions()
+
+func_name = 'test_imports_with_anonymous_functions';
+expect_resolved = {'deps.run_tests' };
+options = make_options( expect_resolved, {} );
 
 errs = run_test( func_name, options );
 print_as_warning( errs );
