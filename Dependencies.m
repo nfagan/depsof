@@ -1937,54 +1937,6 @@ classdef Dependencies < handle
         mfiles = cellfun( @char, mfiles, 'un', 0 );
       end
     end
-    
-    function display_funcs(visited, in_files, funcs, kind, has_desktop)
-      is_target = strcmp( in_files, visited );
-      target_funcs = funcs(is_target);
-
-      for i = 1:numel(target_funcs)
-        if ( ~isempty(kind) )
-          fprintf( '\n    %s (%s)', target_funcs{i}, kind );
-        else
-          if ( has_desktop )
-            fprintf( '\n    <a href="%s">%s</a>', target_funcs{i}, target_funcs{i} );
-          else
-            fprintf( '\n    %s', target_funcs{i} );
-          end
-        end
-      end
-    end
-    
-    function display_results(deps)
-      resolved_in = unique( deps.ResolvedIn );
-      unresolved_in = unique( deps.UnresolvedIn );
-      
-      visited = union( resolved_in, unresolved_in );
-      has_desktop = usejava( 'desktop' );
-      
-      if ( isempty(visited) )
-        fprintf( '\n  No functions were visited.' );
-        
-      else
-        for i = 1:numel(visited)
-          if ( has_desktop )
-            fprintf( '\n  <a href="%s" style="font-weight:bold">%s</a>' ...
-              , visited{i}, visited{i} );
-          else
-            fprintf( '\n  %s', visited{i} );
-          end
-
-          Dependencies.display_funcs( visited{i} ...
-            , deps.ResolvedIn, deps.Resolved, '', has_desktop );
-          Dependencies.display_funcs( visited{i} ...
-            , deps.UnresolvedIn, deps.Unresolved, 'Unresolved', has_desktop );
-
-          fprintf( '\n' );
-        end
-      end
-      
-      fprintf( '\n' );
-    end
   end
   
   methods (Access = public, Static = true)
@@ -2033,8 +1985,10 @@ classdef Dependencies < handle
         deps.Graph = [];
       end
       
+      deps = DependencyResult( deps );
+      
       if ( p.Results.Display )
-        Dependencies.display_results( deps );
+        deps.show();
       end
     end
   end
