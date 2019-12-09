@@ -82,7 +82,7 @@ classdef Dependencies < handle
       obj.SkipToolboxFunctions = true;
       obj.Warn = true;
       obj.DisallowClassdef = false;
-      obj.DependencyGraph = digraph();
+      obj.DependencyGraph = DependencyGraph();
     end
     
     function tf = is_mex_file(obj, file_path)
@@ -133,35 +133,8 @@ classdef Dependencies < handle
         isKey( obj.VisitedFiles, file_path );
     end
     
-    function tf = is_node(obj, node_id)
-      try
-        ind = findnode( obj.DependencyGraph, node_id );
-        tf = ind ~= 0;
-      catch
-        tf = false;
-      end
-    end
-    
-    function require_node(obj, node_id)
-      if ( ~is_node(obj, node_id) )
-        obj.DependencyGraph = addnode( obj.DependencyGraph, node_id );
-      end
-    end
-    
-    function require_edge(obj, from, to)
-      if ( findedge(obj.DependencyGraph, from, to) == 0 )
-        obj.DependencyGraph = addedge( obj.DependencyGraph, from, to );
-      end
-    end
-    
     function connect_nodes(obj, mfile, parent_func)
-      obj.require_node( mfile );
-      
-      % Disallow self loops.
-      if ( ~isempty(parent_func) && ~strcmp(mfile, parent_func) )
-        obj.require_node( parent_func );        
-        obj.require_edge( parent_func, mfile );
-      end
+      obj.DependencyGraph.connect_nodes( parent_func, mfile );
     end
     
     function mark_visited(obj, mfile, parent_func, file_path)
@@ -219,7 +192,7 @@ classdef Dependencies < handle
     function handle_file_not_found(obj, mfile, parent_func, first_entry)
       if ( first_entry )
         if ( obj.Warn )
-          fprintf( '\n Warning: Function "%s" not found.', mfile );
+          fprintf( '\n Warning: Function "%s" not found.\n', mfile );
         end
       else
         obj.add_unresolved_dependency( mfile, parent_func );
@@ -313,12 +286,21 @@ classdef Dependencies < handle
         return
       end
       
+      if ( obj.Verbose )
+        pre_parse_timer = tic();
+        fprintf( '\n Parsing "%s" ... ', mfile );
+      end
+      
       file_contents = fileread( visited_function_info.file_path );
       tokens = obj.scan_file( file_contents, mfile );
 
       try
         obj.begin_file( tokens, file_contents );
         function_names = obj.parse();
+        
+        if ( obj.Verbose )
+          fprintf( 'done (%0.2f ms).', toc(pre_parse_timer)*1e3 );
+        end
       catch err        
         if ( obj.Warn )
           obj.print_parse_error( mfile, err.message );
@@ -2013,7 +1995,7 @@ classdef Dependencies < handle
       deps.UnresolvedIn = obj.UnresolvedIn(sorted_urs_idx);
       
       if ( p.Results.Graph )
-        deps.Graph = DependencyGraph( obj.DependencyGraph );
+        deps.Graph = obj.DependencyGraph;
       else
         deps.Graph = [];
       end
