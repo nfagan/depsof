@@ -1,11 +1,21 @@
 classdef DependencyGraph < handle
-  properties (Access = private)
+  properties (Access = public)
     Graph;
+    Vertices;
+    VerticesToNames;
+    NamesToVertices;
   end
   
   methods
     function obj = DependencyGraph()
       obj.Graph = digraph();
+      obj.Vertices = {};
+      obj.VerticesToNames = containers.Map( 'keytype', 'double', 'valuetype', 'char' );
+      obj.NamesToVertices = containers.Map( 'keytype', 'char', 'valuetype', 'double' );
+    end
+    
+    function tf = isempty(obj)
+      tf = isempty( obj.Vertices );
     end
 
     function s = source_indices(obj)
@@ -39,11 +49,24 @@ classdef DependencyGraph < handle
       if ( ~is_node(obj, node_id) )
         obj.Graph = addnode( obj.Graph, node_id );
       end
+      if ( ~isKey(obj.NamesToVertices, node_id) )
+        vertex_ind = numel( obj.Vertices ) + 1;
+        obj.NamesToVertices(node_id) = vertex_ind;
+        obj.VerticesToNames(vertex_ind) = node_id;
+        obj.Vertices{end+1} = [];
+      end
     end
     
     function require_edge(obj, from, to)
       if ( findedge(obj.Graph, from, to) == 0 )
         obj.Graph = addedge( obj.Graph, from, to );
+      end
+      
+      from_ind = obj.NamesToVertices(from);
+      to_ind = obj.NamesToVertices(to);
+      
+      if ( ~ismember(to_ind, obj.Vertices{from_ind}) )
+        obj.Vertices{from_ind}(end+1) = to_ind;
       end
     end
     
@@ -57,6 +80,38 @@ classdef DependencyGraph < handle
       if ( ~isempty(from) && (allow_self_loops || ~strcmp(to, from)) )
         obj.require_node( from );
         obj.require_edge( from, to );
+      end
+    end
+    
+    function df_traverse(obj, from, visitor, depth, visited)
+      if ( ~isKey(obj.NamesToVertices, from) )
+        return
+      end
+      if ( nargin < 4 )
+        depth = 0;
+      end
+      if ( nargin < 5 )
+        visited = containers.Map( 'keytype', 'double', 'valuetype', 'any' );
+      end
+      
+      from_ind = obj.NamesToVertices(from);
+      edges = obj.Vertices{from_ind};
+      
+      visitor( from, depth );
+      
+      for i = 1:numel(edges)        
+        if ( ~isKey(visited, from_ind) )
+          visited_edges = [];
+        else
+          visited_edges = visited(from_ind);
+        end
+        
+        if ( ~ismember(edges(i), visited_edges) )
+          visited_edges(end+1) = edges(i);
+          visited(from_ind) = visited_edges;
+          
+          obj.df_traverse( obj.VerticesToNames(edges(i)), visitor, depth + 1, visited );
+        end
       end
     end
     

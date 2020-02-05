@@ -1,5 +1,8 @@
 classdef DependencyResult
-  properties
+  properties (GetAccess = public, SetAccess = private)
+    %   ROOTS -- Set of top-level traversed functions.
+    Roots;
+    
     %   RESOLVED -- Set of functions located on Matlab's search path.
     %
     %     Resolved is a cell array of strings containing the names of
@@ -62,6 +65,7 @@ classdef DependencyResult
       %     See also depsof, DependencyResult.Resolved,
       %       DependencyResult.show
       
+      obj.Roots = inputs.Roots;
       obj.Resolved = inputs.Resolved;
       obj.ResolvedFiles = inputs.ResolvedFiles;
       obj.Unresolved = inputs.Unresolved;
@@ -93,6 +97,46 @@ classdef DependencyResult
       %
       %     See also depsof, Dependencies.of
       
+      if ( isempty(obj.Graph) )
+        obj.show_linear();
+      else
+        obj.show_linear();
+%         obj.show_graph();
+      end
+    end
+    
+    function show_graph(obj, roots)
+      if ( nargin < 2 )
+        roots = obj.Roots;
+      else
+        roots = cellstr( roots );
+      end
+      
+      if ( isempty(obj.Graph) )
+        return
+      end
+      
+      for i = 1:numel(roots)
+        obj.Graph.df_traverse( roots{i}, @(node, depth) obj.visit_graph(node, depth) );
+      end
+    end
+  end
+  
+  methods (Access = private)
+    function visit_graph(obj, mfile, depth)
+      spaces = repmat( '  ', 1, depth );
+      was_resolved = depth == 0 || ismember( mfile, obj.Resolved );
+      
+      if ( was_resolved )
+        resolved_str = '';
+      else
+        resolved_str = '';
+      end
+      
+      fprintf( '%s%s%s\n', spaces, mfile, resolved_str );
+    end
+    
+    function show_linear(obj)
       resolved_in = unique( obj.ResolvedIn );
       unresolved_in = unique( obj.UnresolvedIn );
       
@@ -122,9 +166,7 @@ classdef DependencyResult
       
       fprintf( '\n' );
     end
-  end
-  
-  methods (Access = private)
+    
     function display_funcs(obj, visited, in_files, funcs, kind, has_desktop)
       is_target = strcmp( in_files, visited );
       target_funcs = funcs(is_target);

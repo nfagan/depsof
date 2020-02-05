@@ -1988,6 +1988,7 @@ classdef Dependencies < handle
       [sorted_urs, sorted_urs_idx] = sort( obj.UnresolvedDependentFunctions );
       
       deps = struct();
+      deps.Roots = mfile(:)';
       deps.Resolved = sorted_rs;
       deps.ResolvedFiles = obj.ResolvedDependentFilePaths(sorted_rs_idx);
       deps.Unresolved = sorted_urs;
